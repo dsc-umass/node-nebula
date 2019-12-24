@@ -1,4 +1,0 @@
-node_nebula
-
-pycrypto>=2.6.1
-numpy>=1.17.3
