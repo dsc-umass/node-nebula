@@ -4,19 +4,23 @@ from base64 import b64encode, b64decode
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
 from Crypto.Random import get_random_bytes
+from argon2 import PasswordHasher
 
 
+# TODO: Currently using json.loads/json.dumps for initial testing but need more rigorous format
 class NodeClient:
     def __init__(self, clientId, data, connectIDs):
         self.clientID = clientId
         self.data = data
         self.connections = connectIDs
-        self.allSecrets = dict(zip(connectIDs, [None for i in range(len(connectIDs))]))
+        # Is written to by handshake methods and node verification
+        # Contains handshake secrets of all connected nodes with their IDs in plaintext
+        self.allSecrets = {}
 
     # TODO: Post-Handshake Adjacent-Node/Connect-Node Check (in main)
     # Is overriden by receiveHandshake method for simplicity (helps with "in-transit" key issues)
-    def createHandshake(self, endpt, secretLen=128):
-        if(self.allSecrets[endpt] != None):
+    def createHandshake(self, endpt, secretLen=256):
+        if endpt in self.allSecrets:
             return None
         
         # Data-Endpoint pair 1
@@ -64,6 +68,35 @@ class NodeClient:
         cipher = AES.new(key, AES.MODE_CBC, init_vector)
         plaintext = unpad(cipher.decrypt(ciphertext), AES.block_size)
         return plaintext
+
+    # TODO: function for generating list of hashed node IDs
+    # Returns false if node is too close or true if it is more than 2 connections away
+    def verifyNodeProximity(self, data, endpt):
+        # To prevent calling method erroneously
+        if endpt in self.allSecrets:
+            return None
+        
+        # Decrypt and convert hashed connections list
+        decryptedList = decryptAES(data, self.allSecrets[endpt])
+        formattedDecryptedList = json.loads(decryptedList)
+
+        pHasher = PasswordHasher()
+        for connection in formattedDecryptedList:
+            # Adjacent node
+            if pHasher.verify(connection, self.clientID):
+                # send message to node negotiating alternative communication
+                self.allSecrets.pop(endpt)
+                return False
+            # Two-away node
+            for key, value in self.allSecrets:
+                if pHasher.verify(connection, key):
+                    # send message to node negotiating alternative communication
+                    self.allSecrets.pop(endpt)
+                    return False
+        
+        return True
+
+
 
     def getID(self):
         return self.clientID
