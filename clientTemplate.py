@@ -12,9 +12,12 @@ class NodeClient:
     def __init__(self, clientId, data, connectIDs):
         self.clientID = clientId
         self.data = data
+
+        # Adjascent connections
         self.connections = connectIDs
+
         # Is written to by handshake methods and node verification
-        # Contains handshake secrets of all connected nodes with their IDs in plaintext
+        # Contains handshake secrets of all nodes being interacted with and their IDs in plaintext (the keys)
         self.allSecrets = {}
 
     # TODO: Post-Handshake Adjacent-Node/Connect-Node Check (in main)
@@ -53,7 +56,32 @@ class NodeClient:
         # Store Key
         self.allSecrets[endpt] = plaintextKey
 
+    # TODO: function for generating list of hashed node IDs
+    # Returns false if node is too close or true if it is more than 2 connections away, true otherwise
+    def verifyNodeProximity(self, data, endpt):
+        # To prevent calling method erroneously
+        # One-Away Node
+        if endpt in self.connections:
+            return False
+        
+        # Decrypt and convert hashed connections list
+        decryptedList = decryptAES(data, self.allSecrets[endpt])
+        formattedDecryptedList = json.loads(decryptedList)
+
+        pHasher = PasswordHasher()
+        for foreignConn in formattedDecryptedList:
+            # Two-away node
+            for selfConn in self.connections:
+                if pHasher.verify(foreignConn, selfConn):
+                    # send message to node negotiating alternative communication
+                    self.allSecrets.pop(endpt)
+                    return False
+        
+        return True
+
+    #Static method block:
     # Returns byte representation of array containing initialization vector and ciphertext
+    @staticmethod
     def encryptAES(self, data, key):
         cipher = AES.new(key, AES.MODE_CBC)
         cipher = cipher.encrypt(pad(data, AES.block_size))
@@ -61,6 +89,8 @@ class NodeClient:
         ciphertext = b64encode(cipher).decode('utf-8')
         return json.dumps([init_vector, ciphertext]).encode()
 
+    # Returns decrypted plaintext data block from byte-encoded, encrypted json object
+    @staticmethod
     def decryptAES(self, data, key):
         encrypted_data = json.loads(data.decode())
         init_vector = b64decode(encrypted_data[0])
@@ -69,34 +99,17 @@ class NodeClient:
         plaintext = unpad(cipher.decrypt(ciphertext), AES.block_size)
         return plaintext
 
-    # TODO: function for generating list of hashed node IDs
-    # Returns false if node is too close or true if it is more than 2 connections away
-    def verifyNodeProximity(self, data, endpt):
-        # To prevent calling method erroneously
-        if endpt in self.allSecrets:
-            return None
-        
-        # Decrypt and convert hashed connections list
-        decryptedList = decryptAES(data, self.allSecrets[endpt])
-        formattedDecryptedList = json.loads(decryptedList)
-
+    # Hashed adjascent connections
+    @staticmethod
+    def hashedConnections(self):
         pHasher = PasswordHasher()
-        for connection in formattedDecryptedList:
-            # Adjacent node
-            if pHasher.verify(connection, self.clientID):
-                # send message to node negotiating alternative communication
-                self.allSecrets.pop(endpt)
-                return False
-            # Two-away node
-            for key, value in self.allSecrets:
-                if pHasher.verify(connection, key):
-                    # send message to node negotiating alternative communication
-                    self.allSecrets.pop(endpt)
-                    return False
-        
-        return True
+        hashedArray = []
 
+        for connection in self.connections:
+            hashedArray.append(pHasher.hash(connection))
 
+        return hashedArray
 
+    # Get method block:
     def getID(self):
         return self.clientID
